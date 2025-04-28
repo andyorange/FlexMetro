@@ -1,2 +1,2 @@
-PYTHONPATH="${PYTHONPATH}:/Volumes/Projects/coding/python/metrotransit"
+PYTHONPATH="${PYTHONPATH}:/Volumes/Users/abeschorner/projects/coding/vault/PyFlexMetro"
 export PYTHONPATH

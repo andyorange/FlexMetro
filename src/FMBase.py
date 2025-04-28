@@ -11,7 +11,7 @@ class FMBarElement:
     tempo_bar_start: int
     tempo_bar_end: int
     base_beat: int  # base metronom beat.
-    beats: Tuple[int] | Tuple[float] | None  # absolute timepoints if denom == 0
+    beats: Tuple[int] | Tuple[float] | None = None # absolute timepoints if denom == 0
     time_beats: Tuple[float] | None = None   # list of major, medium, minor beats as exact timepoints. Set to None if denom > 0
 
     default_beats: ClassVar[dict] = {
@@ -35,9 +35,9 @@ class FMBarElement:
         if self.beats is None:
             if self.denom > 0:
                 self.beats = FMBarElement.default_beats.get(tuple((self.nom, self.denom)), (0))
-                
             else:
                 self.beats= (0)
+            self.beats = tuple([self.beats]) if isinstance(self.beats, int) else self.beats
         else:
             self.beats = [int(beat) if self.denom > 0 else beat for beat in self.beats]
         self.subbeats = [0]
@@ -74,7 +74,7 @@ class MemberSelector(ABC):
     def identifiers(cls, prefix=None):  # type: ignore[no-untyped-def]
         pref = prefix if prefix is not None else cls._prefix
         return [c for c in dir(cls) if c.startswith(pref)]
-    
+
     @classmethod
     def methods_except(cls, exceptions: List[str], prefix=None):
         pref = prefix if prefix is not None else cls._prefix
@@ -110,4 +110,4 @@ class FMSelection:
     section_start: str
     section_end: str
 
-FMSectionDict = TypedDict("FMSectionDict", {"name": str, "section": FMSection})
+#FMSectionDict = TypedDict("FMSectionDict", {"name": str, "section": FMSection})

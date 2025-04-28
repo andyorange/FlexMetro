@@ -1,14 +1,17 @@
+import threading, functools
+import time
 from typing import List, Callable
 from numpy import linspace
 import logging
-from src.FMBase import FMBarElement, FMSection, FMTickPositions, FMSelection, FMSectionDict
-import threading
+from dataclasses import dataclass
+from src.FMBase import FMBarElement, FMSection, FMTickPositions, FMSelection
 
 """
 This is the interface signature for the timer callback:
 
 section_info: FMBarElement, cnt: int, tick_start: List[int], ignore_subbeats: bool | None=None
 """
+
 
 
 def ctest(section_info: FMBarElement, cnt: int, tick_start: List[int], ignore_subbeats: bool | None=None) -> bool:
@@ -20,7 +23,7 @@ def ctest(section_info: FMBarElement, cnt: int, tick_start: List[int], ignore_su
 
 
 # using this here as a base for the thread based periodic timer: https://gist.github.com/cypreess/5481681
-class FMSectionTimer(object):
+class FMSectionHandler(object):
     """
     Python periodic Thread using Timer with instant cancellation
 
@@ -28,15 +31,15 @@ class FMSectionTimer(object):
     """
 
     def __init__(self,
-                 sections: FMSection | FMSectionDict, continuous_sections: bool, callback: Callable | None=None):
-        self.sections = {"1": sections} if isinstance(sections, FMSection) else sections
+                 sections: FMSection | list[FMSection], continuous_sections: bool, callback: Callable | None=None):
+        self.sections = {sections.name: sections} if isinstance(sections, FMSection) else {s.name: s for s in sections}
         self.cont = continuous_sections
         # continuous_sections: sections are a sequence. There may be gaps in bars, but subsequent sections are strictly monotonically increasing.
         #  Repeat brackets with overlapping bar numbers need to be encoded as individual sections
         #  If false: sections can have arbitraty bar numbers.
         # subbeats are the beats where the "sublevel" metronome circle should light up. Built from beats
         self.timers = {
-            name: FMSectionTimer.CreateMeasureTempi(section) for name, section in self.sections.items()
+            name: FMSectionHandler.CreateMeasureTempi(section) for name, section in self.sections.items()
         }
         self.active_sections = []  # selected ones.
         self.compute_section_data()
@@ -47,14 +50,23 @@ class FMSectionTimer(object):
         self._cnt_measure = 0
         self._beat_idx = 0
         self._cnt_section = 0
-        
+
         self._stop = False
         self._current_timer = None
         self._schedule_lock = threading.Lock()
 
+    @property
+    def base_timer(self, section_name: str | None=None) -> FMSection:
+        #TODO: use active_sections if section_name is None?
+        try:
+            key = section_name if section_name is not None else list(self.timers.keys())[0]
+        except IndexError:
+            raise ValueError("No section name provided and no default section available.")
+        return self.timers[key]
+
     def compute_section_data(self) -> None:
         prev_end = -1
-        for section in self.sections:
+        for section_name, section in self.sections.items():
             if self.cont:
                 if section.start < 0:  # continuous sections
                     section.start = prev_end
@@ -71,12 +83,11 @@ class FMSectionTimer(object):
                     section.start -= 1  # users count from 1 to x, computers from 0 to x-1
                     section.end -= 1
                     section.len = section.end - section.start + 1
-        return         
+        return
 
     def computer_overlapps(self, sel: FMSelection) -> list:
         section_start = self.sections[sel.section_start]
         section_end = self.sections[sel.section_end]
-        
         return []
 
     @staticmethod
@@ -96,7 +107,7 @@ class FMSectionTimer(object):
     def set_callback(self, callback: Callable) -> None:
         self.callback = callback
         return
-    
+
     def resolve_beat(self) -> int:
         if self._cnt_beat == 0:
             return FMTickPositions.T_major
@@ -113,7 +124,6 @@ class FMSectionTimer(object):
         """
         try:
             self.run()
-            
         except Exception as exc:
             logging.exception(f"Exception in running periodic thread: {exc}")
         finally:
