@@ -31,23 +31,28 @@ class FMSectionHandler(object):
     """
 
     def __init__(self,
-                 sections: FMSection | list[FMSection], continuous_sections: bool, callback: Callable | None=None):
+                 sections: FMSection | list[FMSection], continuous_sections: bool,
+                 loop: bool | None=None, callback: Callable | None=None
+        ):
         self.sections = {sections.name: sections} if isinstance(sections, FMSection) else {s.name: s for s in sections}
         self.cont = continuous_sections
+        self.loop = loop
+        self.callback = callback
         # continuous_sections: sections are a sequence. There may be gaps in bars, but subsequent sections are strictly monotonically increasing.
         #  Repeat brackets with overlapping bar numbers need to be encoded as individual sections
         #  If false: sections can have arbitraty bar numbers.
         # subbeats are the beats where the "sublevel" metronome circle should light up. Built from beats
+
         self.timers = {
             name: FMSectionHandler.CreateMeasureTempi(section) for name, section in self.sections.items()
         }
-        self.active_sections = []  # selected ones.
+        self._section_sequence: list[str] = [ key for key, sec in self.sections.items() ]
+        self.current_section: str = ""  # current section name, default is None=""
         self.compute_section_data()
         self.tick_start: int = FMTickPositions.T_none  # ticking beat
-        self.callback = callback
 
         self._cnt_beat = 0
-        self._cnt_measure = 0
+        self._cnt_bar = 0
         self._beat_idx = 0
         self._cnt_section = 0
 
@@ -57,12 +62,48 @@ class FMSectionHandler(object):
 
     @property
     def base_timer(self, section_name: str | None=None) -> FMSection:
-        #TODO: use active_sections if section_name is None?
         try:
             key = section_name if section_name is not None else list(self.timers.keys())[0]
         except IndexError:
             raise ValueError("No section name provided and no default section available.")
         return self.timers[key]
+
+    def get_section_index(self, section_name: str | None=None) -> int:
+        assert(self._section_sequence is not None) and (len(self._section_sequence) > 0)
+        name = section_name if section_name is not None else self.current_section
+        try:
+            idx = self._section_sequence.index(name)
+        except ValueError:
+            raise ValueError(f"Section {name} not found in the section sequence. Restarting from the beginning.")
+            idx = 0
+        return idx
+
+    def change_index(self, idx: int, step: int) -> int:
+        idx += step
+        if self.loop:
+            idx %= len(self._section_sequence)
+        else:
+            if (idx < 0) or (idx >= len(self._section_sequence)):
+                raise ValueError(f"Index {idx} out of range for section sequence.")
+        return idx
+
+    def next_section(self, section_name: str | None=None) -> tuple[str, FMSection]|None:
+        idx = self.get_section_ref(section_name)
+        try:
+            idx = self.change_index(idx, 1)
+        except ValueError:
+            return None
+        name = self._section_sequence[idx]
+        return name, self.sections[name]
+
+    def previous_section(self, section_name: str | None=None) -> tuple[str, FMSection]|None:
+        idx = self.get_section_ref(section_name)
+        try:
+            idx = self.change_index(idx, -1)
+        except ValueError:
+            return None
+        name = self._section_sequence[idx]
+        return name, self.sections[name]
 
     def compute_section_data(self) -> None:
         prev_end = -1
@@ -98,7 +139,7 @@ class FMSectionHandler(object):
 
     def start(self) -> None:
         self._cnt_beat = 0
-        self._cnt_measure = 0
+        self._cnt_bar = 0
         self._beat_idx = 0
         self._run()  # metronome: the first beat initiates the timer and needs, beats happen BEFORE the countdown!
         #self.schedule_timer()
@@ -132,11 +173,11 @@ class FMSectionHandler(object):
                 self.schedule_timer()
 
     def schedule_timer(self):
-        if self._cnt_section >= self.len(self.sections):
+        if self._cnt_section >= len(self.sections):
             self.cancel()
-        if self._cnt_measure >= self.num_measures:
+        if self._cnt_bar >= self.num_measures:
             self._cnt_section += 1
-            self._cnt_measure = 0
+            self._cnt_bar = 0
             return
         self.tick_start = self.resolve_beat()
         self._current_timer = threading.Timer(self.timers[self._beat_idx], self._run)
@@ -145,7 +186,7 @@ class FMSectionHandler(object):
         self._beat_idx += 1
         if self._cnt_beat >= self.sections.nom:
             self._cnt_beat = 0
-            self._cnt_measure += 1
+            self._cnt_bar += 1
 
 
     def cancel(self):

@@ -1,13 +1,16 @@
 from abc import ABC, abstractmethod, abstractclassmethod
 from src.FMBase import FMTickPositions, FMBarElement
+from src.FMSectionHandler import FMSectionHandler
 
 
 class FMTickerBase(ABC):
-    def __init__(self) -> None:
+    def __init__(self, timer: FMSectionHandler | None=None) -> None:
         FMTickPositions()
+        self.timer = timer
+        self.state = FMTickPositions.T_none
         super(FMTickerBase, self).__init__()
 
-    # implements the interface to 
+    # implements the interface to
     @abstractmethod
     def tick_callback(self, section_info: FMBarElement, cnt: int, ignore_subbeats: bool | None=None):
         ...
